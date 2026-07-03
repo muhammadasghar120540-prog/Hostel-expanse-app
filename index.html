@@ -3,19 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Hostel Expense Pro v4.7</title>
+    <title>Hostel Expense Pro v5.2</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root { --sidebar-w: 75px; --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --danger: #e74c3c; --bg: #f4f7f6; }
         * { box-sizing: border-box; }
-        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg); overflow: hidden; }
-        .sidebar { width: var(--sidebar-w); background: var(--primary); color: white; display: flex; flex-direction: column; align-items: center; padding-top: 15px; flex-shrink: 0; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; width: 100vw; background: var(--bg); overflow: hidden; }
+        
+        .sidebar { width: var(--sidebar-w); background: var(--primary); color: white; display: flex; flex-direction: column; align-items: center; padding-top: 15px; flex-shrink: 0; height: 100%; }
         .nav-item { width: 100%; padding: 15px 5px; text-align: center; cursor: pointer; font-size: 11px; color: #bdc3c7; border-left: 3px solid transparent; }
         .nav-item.active { background: #34495e; color: white; border-left-color: var(--accent); }
         .nav-item i { display: block; font-size: 22px; margin-bottom: 4px; }
-        .main-content { flex-grow: 1; overflow-y: auto; padding: 15px; }
+        
+        .main-content { flex-grow: 1; height: 100%; overflow-y: auto; padding: 15px; display: block; }
         .page { display: none; max-width: 900px; margin: 0 auto; animation: fadeIn 0.2s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
         .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); margin-bottom: 20px; }
         .card.expense-card { border-top: 5px solid var(--danger); }
         .card.collection-card { border-top: 5px solid var(--success); }
@@ -33,6 +36,13 @@
         th, td { padding: 6px 4px; text-align: center; border-bottom: 1px solid #eee; }
         .action-btns { display: flex; gap: 4px; justify-content: center; }
         label.section-label { font-size: 12px; font-weight: bold; color: #7f8c8d; display: block; margin-top: 10px; }
+        .archive-box { border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; border-radius: 6px; background: #fafafa; font-size: 12px; }
+        .toggle-btn { padding: 4px 8px; font-size: 11px; border-radius: 4px; width: auto; display: inline-block; }
+        .status-on { background: var(--success); }
+        .status-off { background: var(--danger); }
+        
+        .edit-modal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:1000; }
+        .modal-content { background:white; padding:20px; border-radius:12px; width:90%; max-width:400px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
@@ -118,35 +128,56 @@
         <div id="archivePage" class="page">
             <h2>Settings & Archive</h2>
             <div class="card">
-                <h3>Manage Members</h3>
+                <h3>Manage Members & Mess Status</h3>
                 <div id="manageMembersList"></div>
-                <div style="display:flex; gap:5px;">
+                <div style="display:flex; gap:5px; margin-top:10px;">
                     <input id="newMemberName" placeholder="New Member Name">
                     <button style="width:80px" onclick="addMember()">Add</button>
                 </div>
             </div>
             <div class="card">
-                <h3>History Archive</h3>
+                <h3>Clear Memory Tools</h3>
+                <button style="background-color: #f39c12; margin-bottom: 10px;" onclick="resetAnalysisMemory()">⚠️ Clear Locked Analysis Balances</button>
                 <button class="btn-danger" onclick="archiveData()">Archive Current Data</button>
-                <div id="archiveHistory"></div>
+                <div id="archiveHistory" style="margin-top: 15px;"></div>
             </div>
+        </div>
+    </div>
+
+    <div id="editModal" class="edit-modal">
+        <div class="modal-content">
+            <h3>📝 Edit Record Details</h3>
+            <input id="editDesc" placeholder="Description">
+            <input id="editAmt" type="number" placeholder="Amount">
+            <label class="section-label">Paid By:</label>
+            <select id="editPayer"></select>
+            <label class="section-label">Included Members:</label>
+            <div id="editMemberChecks" style="display:grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top:5px; margin-bottom:15px;"></div>
+            <button class="btn-success" onclick="saveEdits()">Save Changes</button>
+            <button class="btn-danger" style="background:#7f8c8d; margin-top:5px;" onclick="closeModal()">Cancel</button>
         </div>
     </div>
 
     <script>
         let members = JSON.parse(localStorage.getItem("members") || '["Ali", "Asghar"]');
+        let messStatus = JSON.parse(localStorage.getItem("messStatus") || '{}');
         let records = JSON.parse(localStorage.getItem("records") || "[]");
         let archives = JSON.parse(localStorage.getItem("archives") || "[]");
+        let historicalLog = JSON.parse(localStorage.getItem("historicalLog") || "{}");
+        let activeEditId = null;
+
+        members.forEach(m => { if(messStatus[m] === undefined) messStatus[m] = true; });
 
         function save() {
             localStorage.setItem("records", JSON.stringify(records));
             localStorage.setItem("members", JSON.stringify(members));
+            localStorage.setItem("messStatus", JSON.stringify(messStatus));
             localStorage.setItem("archives", JSON.stringify(archives));
+            localStorage.setItem("historicalLog", JSON.stringify(historicalLog));
         }
 
         function addEntry(type) {
             let desc, amt, date, payer, included;
-
             if(type === 'expense') {
                 desc = document.getElementById("expDesc").value;
                 amt = Number(document.getElementById("expAmt").value);
@@ -162,7 +193,6 @@
                 included = []; 
                 if(!desc || !amt || !date) return alert("Please fill all collection details.");
             }
-
             records.push({ id: Date.now().toString(), date, desc, type, amount: amt, paidBy: payer, members: included });
             save(); location.reload(); 
         }
@@ -171,10 +201,9 @@
             let html = "";
             records.slice().reverse().forEach(r => {
                 const perHead = (r.type === 'expense' && r.members.length > 0) ? (r.amount / r.members.length).toFixed(0) : "-";
-                const typeIcon = r.type === 'expense' ? '💸' : '💰';
                 html += `<tr>
                     <td>${r.date.split('-').slice(1).join('/')}</td>
-                    <td>${typeIcon}</td>
+                    <td>${r.type === 'expense' ? '💸' : '💰'}</td>
                     <td>${r.desc}</td>
                     <td>${r.amount}</td>
                     <td>${perHead}</td>
@@ -182,7 +211,7 @@
                     <td style="font-size:8px">${r.members.join(", ")}</td>
                     <td>
                         <div class="action-btns">
-                            <button class="btn-edit" style="width:auto; padding:2px 6px; font-size:9px" onclick="editRec('${r.id}')">Edit</button>
+                            <button class="btn-edit" style="width:auto; padding:2px 6px; font-size:9px" onclick="openEditModal('${r.id}')">Edit</button>
                             <button class="btn-danger" style="width:auto; padding:2px 6px; font-size:9px" onclick="deleteRec('${r.id}')">Del</button>
                         </div>
                     </td>
@@ -193,23 +222,28 @@
 
         function calculateBalances() {
             let stats = { consumed: {}, paid: {}, balance: {}, common: 0 };
-            members.forEach(m => { stats.consumed[m] = 0; stats.paid[m] = 0; stats.balance[m] = 0; });
+            members.forEach(m => { 
+                stats.consumed[m] = historicalLog[m]?.consumed || 0; 
+                stats.paid[m] = historicalLog[m]?.paid || 0; 
+                stats.balance[m] = historicalLog[m]?.balance || 0; 
+            });
+            stats.common = historicalLog["__commonFundAccount__"] || 0;
 
             records.forEach(r => {
                 if(r.type === 'expense') {
                     let share = r.members.length > 0 ? r.amount / r.members.length : 0;
                     r.members.forEach(m => {
-                        stats.consumed[m] += share;
-                        stats.balance[m] -= share;
+                        if(stats.consumed[m] !== undefined) stats.consumed[m] += share;
+                        if(stats.balance[m] !== undefined) stats.balance[m] -= share;
                     });
                     if(r.paidBy === "Common") {
                         stats.common -= r.amount;
                     } else {
-                        stats.paid[r.paidBy] += r.amount;
-                        stats.balance[r.paidBy] += r.amount;
+                        if(stats.paid[r.paidBy] !== undefined) stats.paid[r.paidBy] += r.amount;
+                        if(stats.balance[r.paidBy] !== undefined) stats.balance[r.paidBy] += r.amount;
                     }
-                } else { // Collection logic correctly updates balance
-                    if(r.paidBy !== "Common") {
+                } else { 
+                    if(r.paidBy !== "Common" && stats.paid[r.paidBy] !== undefined) {
                         stats.paid[r.paidBy] += r.amount;
                         stats.balance[r.paidBy] += r.amount; 
                     }
@@ -219,19 +253,48 @@
             return stats;
         }
 
-        function editRec(id) {
+        function openEditModal(id) {
+            activeEditId = id;
             let rec = records.find(r => r.id === id);
             if(!rec) return;
-            let newDesc = prompt("Edit Description:", rec.desc);
-            let newAmt = prompt("Edit Amount:", rec.amount);
-            if (newDesc !== null && newAmt !== null && !isNaN(newAmt)) {
-                rec.desc = newDesc;
-                rec.amount = Number(newAmt);
+            document.getElementById("editDesc").value = rec.desc;
+            document.getElementById("editAmt").value = rec.amount;
+            
+            const mOptions = members.map(m => `<option value="${m}">${m}</option>`).join("");
+            document.getElementById("editPayer").innerHTML = `<option value="Common">Common Fund Account</option>` + mOptions;
+            document.getElementById("editPayer").value = rec.paidBy;
+            
+            document.getElementById("editMemberChecks").innerHTML = members.map(m => `
+                <label><input type="checkbox" value="${m}" ${rec.members.includes(m)?'checked':''}> ${m}</label>`).join("");
+            document.getElementById("editModal").style.display = "flex";
+        }
+
+        function closeModal() { document.getElementById("editModal").style.display = "none"; }
+
+        function saveEdits() {
+            let rec = records.find(r => r.id === activeEditId);
+            if(rec) {
+                rec.desc = document.getElementById("editDesc").value;
+                rec.amount = Number(document.getElementById("editAmt").value);
+                rec.paidBy = document.getElementById("editPayer").value;
+                rec.members = [...document.querySelectorAll("#editMemberChecks input:checked")].map(i => i.value);
                 save(); location.reload();
             }
         }
 
         function deleteRec(id) { if(confirm("Are you sure to delete this record?")) { records = records.filter(r => r.id !== id); save(); location.reload(); } }
+
+        function toggleMess(name) {
+            messStatus[name] = !messStatus[name];
+            save(); init();
+        }
+
+        function resetAnalysisMemory() {
+            if(confirm("Are you sure you want to completely erase memory data logs? This will set analytical starting offsets back to 0.")) {
+                historicalLog = {};
+                save(); location.reload();
+            }
+        }
 
         function renderAnalysis() {
             const data = calculateBalances();
@@ -268,10 +331,18 @@
             document.getElementById("expPayer").innerHTML = commonOption + mOptions;
             document.getElementById("colPayer").innerHTML = mOptions + commonOption;
             document.getElementById("shareMemberSelect").innerHTML = mOptions;
-            document.getElementById("expMemberChecks").innerHTML = members.map(m => `<label><input type="checkbox" value="${m}" checked> ${m}</label>`).join("");
+            
+            document.getElementById("expMemberChecks").innerHTML = members.map(m => `
+                <label><input type="checkbox" value="${m}" ${messStatus[m]?'checked':''}> ${m}</label>`).join("");
+            
             document.getElementById("manageMembersList").innerHTML = members.map(m => `
-                <div class="balance-item"><span>${m}</span>
-                <button class="btn-danger" style="width:auto" onclick="deleteMember('${m}')">Del</button></div>`).join("");
+                <div class="balance-item">
+                    <span>${m} [${messStatus[m]?'ON':'OFF'}]</span>
+                    <div>
+                        <button class="toggle-btn ${messStatus[m]?'status-on':'status-off'}" onclick="toggleMess('${m}')">${messStatus[m]?'Turn Off':'Turn On'}</button>
+                        <button class="btn-danger" style="width:auto; padding:4px 8px; font-size:11px; margin-left:5px;" onclick="deleteMember('${m}')">Del</button>
+                    </div>
+                </div>`).join("");
             
             const today = new Date().toISOString().split('T')[0];
             document.getElementById("expDate").value = today;
@@ -280,27 +351,67 @@
         }
 
         function addMember() {
-            const name = document.getElementById("newMemberName").value;
-            if(name && !members.includes(name)) { members.push(name); save(); location.reload(); }
+            const name = document.getElementById("newMemberName").value.trim();
+            if(name && !members.includes(name)) { 
+                members.push(name); 
+                messStatus[name] = true;
+                save(); location.reload(); 
+            }
         }
-        function deleteMember(name) { if(confirm(`Remove ${name} from hostel?`)) { members = members.filter(m => m !== name); save(); location.reload(); } }
+        function deleteMember(name) { if(confirm(`Remove ${name}?`)) { members = members.filter(m => m !== name); delete messStatus[name]; save(); location.reload(); } }
+        
+
         function renderArchiveList() {
             let html = "<h3>Archives</h3>";
             archives.slice().reverse().forEach(a => {
-                html += `<div class="archive-box"><b>${a.range}</b><br>Total Exp: Rs ${a.totalExp.toFixed(0)}<hr>${a.memberStats.join("<br>")}</div>`;
+                const balStrings = a.balances ? Object.keys(a.balances).map(m => `${m}: Rs ${a.balances[m].toFixed(0)}`) : [];
+                html += `<div class="archive-box"><b>${a.range}</b><br>Total Exp: Rs ${a.totalExp.toFixed(0)}<br><small>${balStrings.join(" | ")}</small></div>`;
             });
             document.getElementById("archiveHistory").innerHTML = html;
         }
+
         function shareToday() {
             const today = new Date().toISOString().split('T')[0];
             const todayRecs = records.filter(r => r.date === today);
             const data = calculateBalances();
-            let text = `📅 HOSTEL REPORT (${today})\n\n`;
-            todayRecs.forEach(r => text += `• ${r.desc}: Rs ${r.amount} (${r.type})\n`);
-            text += `\n🏦 Fund Balance: Rs ${data.common.toFixed(0)}\n💰 NET BALANCES:\n`;
-            members.forEach(m => text += `${m}: Rs ${data.balance[m].toFixed(0)}\n`);
-            if (navigator.share) navigator.share({ text });
+            const dParts = today.split('-');
+            
+            let text = `📋 HOSTEL REPORT: ${dParts[2]}-${dParts[1]}-${dParts[0]}\n\n`;
+            
+            const expenses = todayRecs.filter(r => r.type === 'expense');
+            if(expenses.length > 0){
+                text += `🔹 EXPENSES:\n`;
+                expenses.forEach(r => {
+                    text += `• ${r.desc} - Rs ${r.amount} (Paid by: ${r.paidBy})\n`;
+                    text += `  Members: ${r.members.join(", ")}\n`;
+                });
+                text += `\n`;
+            }
+            
+            const collections = todayRecs.filter(r => r.type === 'collection');
+            if (collections.length > 0) {
+                text += `🔹 COLLECTIONS:\n`;
+                collections.forEach(r => {
+                    text += `• ${r.desc} - Rs ${r.amount} (By: ${r.paidBy})\n`;
+                });
+                text += `\n`;
+            }
+            
+            text += `📊 NET BALANCE SUMMARY:\n`;
+            members.forEach(m => {
+                text += `• ${m}: Rs ${data.balance[m].toFixed(0)}\n`;
+            });
+            
+            text += `\n🏦 Common Fund Balance: Rs ${data.common.toFixed(0)}`;
+
+            if (navigator.share) {
+                navigator.share({ text }).catch(err => console.log(err));
+            } else {
+                navigator.clipboard.writeText(text);
+                alert("Clean report copied to clipboard!");
+            }
         }
+
         function shareIndividual() {
             const name = document.getElementById("shareMemberSelect").value;
             let text = `👤 RECORD FOR: ${name}\n\n`;
@@ -313,15 +424,25 @@
             text += `\nTotal Consumed: Rs ${personalTotal.toFixed(0)}`;
             if (navigator.share) navigator.share({ text });
         }
+
         function archiveData() {
-            if(records.length === 0) return alert("No records to archive.");
-            if(!confirm("Archive current data and clear records for new month?")) return;
+            if(records.length === 0) return alert("No current records to archive.");
+            if(!confirm("Archive data? Current balances will turn permanent.")) return;
+            
             const data = calculateBalances();
             const dates = records.map(r => r.date).sort();
+            
+            let balanceSnapshot = {};
+            members.forEach(m => { 
+                balanceSnapshot[m] = data.balance[m];
+                historicalLog[m] = { consumed: data.consumed[m], paid: data.paid[m], balance: data.balance[m] };
+            });
+            historicalLog["__commonFundAccount__"] = data.common;
+
             archives.push({
                 range: `${dates[0]} to ${dates[dates.length-1]}`,
                 totalExp: Object.values(data.consumed).reduce((a, b) => a + b, 0),
-                memberStats: members.map(m => `${m}: Rs ${data.consumed[m].toFixed(0)}`)
+                balances: balanceSnapshot
             });
             records = []; save(); location.reload();
         }
